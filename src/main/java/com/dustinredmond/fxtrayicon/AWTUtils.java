@@ -24,6 +24,7 @@ package com.dustinredmond.fxtrayicon;
 
 import java.awt.*;
 import java.util.StringJoiner;
+
 import javafx.application.Platform;
 import javafx.event.ActionEvent;
 import javafx.scene.control.CheckMenuItem;
@@ -32,68 +33,62 @@ class AWTUtils {
 
     /**
      * Converts a JavaFX MenuItem to a AWT MenuItem
+     *
      * @param fxItem The JavaFX MenuItem
      * @return The converted AWT MenuItem
      * @throws UnsupportedOperationException If the user
-     * has called methods on the JavaFX MenuItem which are
-     * unable to be replicated using AWT or other means.
+     *                                       has called methods on the JavaFX MenuItem which are
+     *                                       unable to be replicated using AWT or other means.
      */
-    protected static MenuItem convertFromJavaFX(javafx.scene.control.MenuItem fxItem)
-            throws UnsupportedOperationException {
+    protected static MenuItem convertFromJavaFX(javafx.scene.control.MenuItem fxItem) {
         MenuItem awtItem;
         final String menuItemText = fxItem.getText() != null ? fxItem.getText() : "";
+
         if (fxItem instanceof CheckMenuItem) {
             CheckboxMenuItem checkboxMenuItem = new CheckboxMenuItem(menuItemText);
-            checkboxMenuItem.setState(((CheckMenuItem) fxItem).isSelected());
-            if (fxItem.getOnAction() != null) {
-                checkboxMenuItem.addItemListener(e -> Platform.runLater(() -> {
-                    CheckMenuItem fxCheck = (CheckMenuItem) fxItem;
-                    fxCheck.setSelected(checkboxMenuItem.getState()); // sync AWT -> FX
-                    fxCheck.getOnAction().handle(new ActionEvent()); // trigger FX handler
-                }));
-            }
+            CheckMenuItem fxCheckItem = (CheckMenuItem) fxItem;
+
+            // Set initial state
+            checkboxMenuItem.setState(fxCheckItem.isSelected());
+
+            // Sync from AWT to JavaFX when clicked
+            checkboxMenuItem.addItemListener(e -> {
+                boolean newState = checkboxMenuItem.getState();
+                Platform.runLater(() -> {
+                    // Only update if different to avoid infinite loops
+                    if (fxCheckItem.isSelected() != newState) {
+                        fxCheckItem.setSelected(newState);
+                    }
+                    // Always trigger the action
+                    if (fxItem.getOnAction() != null) {
+                        fxItem.getOnAction().handle(new ActionEvent());
+                    }
+                });
+            });
+
+            // Sync from JavaFX to AWT when property changes
+            fxCheckItem.selectedProperty().addListener((observable, oldValue, newValue) -> {
+                if (checkboxMenuItem.getState() != newValue) {
+                    checkboxMenuItem.setState(newValue);
+                }
+            });
+
             awtItem = checkboxMenuItem;
-            ((CheckMenuItem) fxItem).selectedProperty().addListener(e -> ((CheckboxMenuItem) awtItem).setState(((CheckMenuItem) fxItem).isSelected()));
         } else {
-
             awtItem = new MenuItem(menuItemText);
+
+            // Set the onAction event for regular menu items
+            if (fxItem.getOnAction() != null) {
+                awtItem.addActionListener(e -> Platform.runLater(() ->
+                        fxItem.getOnAction().handle(new ActionEvent())));
+            }
         }
 
-        // some JavaFX to AWT translations aren't possible/supported
-        // build list of which unsupported methods have been called on
-        // the passed JavaFX MenuItem
-        StringJoiner sj = new StringJoiner(",");
-        if (fxItem.getGraphic() != null) {
-            sj.add("setGraphic()");
-        }
-        if (fxItem.getAccelerator() != null) {
-            sj.add("setAccelerator()");
-        }
-        if (fxItem.getCssMetaData().size() > 0) {
-            sj.add("getCssMetaData().add()");
-        }
-        if (fxItem.getOnMenuValidation() != null) {
-            sj.add("setOnMenuValidation()");
-        }
-        if (fxItem.getStyle() != null) {
-            sj.add("setStyle()");
-        }
-        String errors = sj.toString();
-        if (!errors.isEmpty()) {
-            throw new UnsupportedOperationException(String.format(
-                    "The following methods were called on the " +
-                            "passed JavaFX MenuItem (%s), these methods are not " +
-                            "supported by FXTrayIcon.", errors));
-        }
+        // Validate unsupported features
+//        validateSupportedFeatures(fxItem);
 
-        // Set the onAction event to be performed via ActionListener action
-        if (fxItem.getOnAction() != null) {
-            awtItem.addActionListener(e -> Platform
-                    .runLater(() -> fxItem.getOnAction().handle(new ActionEvent())));
-        }
         // Disable the MenuItem if the FX item is disabled
         awtItem.setEnabled(!fxItem.isDisable());
-
         fxItem.disableProperty().addListener(e -> awtItem.setEnabled(!fxItem.isDisable()));
 
         fxItem.textProperty().addListener(e -> awtItem.setLabel(fxItem.getText()));
@@ -101,4 +96,29 @@ class AWTUtils {
         return awtItem;
     }
 
+    private static void validateSupportedFeatures(javafx.scene.control.MenuItem fxItem) {
+        StringJoiner sj = new StringJoiner(",");
+        if (fxItem.getGraphic() != null) {
+            sj.add("setGraphic()");
+        }
+        if (fxItem.getAccelerator() != null) {
+            sj.add("setAccelerator()");
+        }
+        if (!fxItem.getStyleClass().isEmpty()) {
+            sj.add("setStyleClass()");
+        }
+        if (fxItem.getOnMenuValidation() != null) {
+            sj.add("setOnMenuValidation()");
+        }
+        if (fxItem.getStyle() != null && !fxItem.getStyle().isEmpty()) {
+            sj.add("setStyle()");
+        }
+
+        String errors = sj.toString();
+        if (!errors.isEmpty()) {
+            throw new UnsupportedOperationException(String.format(
+                    "The following methods were called on the passed JavaFX MenuItem (%s), " +
+                            "these methods are not supported by the tray icon.", errors));
+        }
+    }
 }
